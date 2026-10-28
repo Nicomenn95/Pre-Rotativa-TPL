@@ -7,10 +7,9 @@ import io
 st.set_page_config(page_title="Generador Pre Rotativa", layout="wide", page_icon="🚌")
 
 st.title("🚌 Generador de Reporte Pre Rotativa")
-st.markdown("Sube el reporte de ocupación descargado de Terra. El sistema cruzará los datos con los tiempos de viaje integrados y generará el formato exacto para la Pre Rotativa.")
+st.markdown("Sube el reporte de ocupación descargado de Terra. El sistema cruzará los datos, calculará los tiempos, y ordenará automáticamente las salidas por hora.")
 
 # --- DICCIONARIO DE TIEMPOS INTEGRADO ---
-# Aquí están pre-guardados todos los tiempos de llegada por ruta
 TIEMPOS_RUTAS = {
     '001 TAL-STGO-': '03:00:00',
     '002 STGO - TALCA': '03:00:00',
@@ -45,20 +44,16 @@ archivo_terra = st.file_uploader("📥 Subir Reporte de Terra (Excel)", type=["x
 # --- FUNCIONES ---
 def calcular_hora_llegada(hora_salida, ruta):
     """Suma la hora de salida y el tiempo pre-guardado para obtener la hora de llegada."""
-    duracion = TIEMPOS_RUTAS.get(ruta) # Busca el tiempo exacto usando la ruta
+    duracion = TIEMPOS_RUTAS.get(ruta)
     
     if pd.isna(hora_salida) or not duracion:
-        return None # Si no hay hora de salida o la ruta no existe en el diccionario
+        return None 
         
     try:
-        # Convertir la hora de salida (texto) a un objeto de tiempo
         h_s = pd.to_datetime(str(hora_salida), format='%H:%M').time()
-        
-        # Extraer horas, minutos y segundos del diccionario
         h, m, s = map(int, duracion.split(':'))
         td = timedelta(hours=h, minutes=m, seconds=s)
             
-        # Sumar los tiempos creando una fecha base
         dt_salida = datetime.combine(datetime.today(), h_s)
         dt_llegada = dt_salida + td
         return dt_llegada.strftime('%H:%M')
@@ -77,10 +72,19 @@ def resaltar_cauquenes_santiago(row):
 # --- PROCESAMIENTO PRINCIPAL ---
 if archivo_terra:
     try:
-        # 1. Leer el reporte de Terra (saltando la primera fila que es un encabezado inútil)
         df_terra = pd.read_excel(archivo_terra, skiprows=1)
         
-        with st.spinner("Procesando y calculando tiempos de llegada..."):
+        with st.spinner("Procesando, ordenando cronológicamente y calculando tiempos..."):
+            
+            # --- NUEVO: ORDENAMIENTO CRONOLÓGICO ---
+            # Creamos una columna temporal de fecha real para ordenar correctamente
+            df_terra['dt_sort'] = pd.to_datetime(
+                df_terra['Fecha salida'].astype(str) + ' ' + df_terra['Hora salida'].astype(str), 
+                format='%d/%m/%Y %H:%M', 
+                errors='coerce'
+            )
+            # Ordenamos el DataFrame de menor a mayor
+            df_terra = df_terra.sort_values('dt_sort')
             
             # 2. Calcular la Hora de Llegada consultando el diccionario interno
             df_terra['Hora de llegada'] = df_terra.apply(
@@ -88,17 +92,15 @@ if archivo_terra:
             )
             
             # 3. Separar la Ocupación Relativa
-            # Toma algo como "2/42 (4.76%)" y lo corta donde hay un espacio.
             temp = df_terra['Ocupación Relativa'].astype(str).str.split(' ', n=1, expand=True)
-            df_terra['Ocupacion'] = temp[0] # Guarda el "2/42"
+            df_terra['Ocupacion'] = temp[0] 
             
             if temp.shape[1] > 1:
-                # Limpia los paréntesis para dejar solo "4.76%"
                 df_terra['% ocupacion'] = temp[1].str.replace(r'\(|\)', '', regex=True)
             else:
                 df_terra['% ocupacion'] = ""
                 
-            # 4. Seleccionar el orden exacto de las columnas que pediste
+            # 4. Seleccionar el orden exacto de las columnas
             columnas_finales = [
                 'Fecha salida', 'Hora salida', 'Hora de llegada', 
                 'Origen (ciudad)', 'Destino (ciudad)', 'Ocupacion', '% ocupacion'
@@ -107,10 +109,9 @@ if archivo_terra:
             df_final = df_terra[columnas_finales]
             
             # 5. Aplicar Estilos de Color
-            # Aplicamos la función para resaltar las filas según el origen y destino
             df_final_estilizado = df_final.style.apply(resaltar_cauquenes_santiago, axis=1)
             
-            st.success("✅ ¡Reporte procesado correctamente!")
+            st.success("✅ ¡Reporte procesado y ordenado cronológicamente con éxito!")
             
             # 6. Mostrar Vista Previa
             st.subheader("Vista Previa del Reporte Resultante")
@@ -119,13 +120,12 @@ if archivo_terra:
             # 7. Crear Excel para descarga
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                # Al exportar el dataframe estilizado (df_final_estilizado), pandas guarda los colores en el Excel
                 df_final_estilizado.to_excel(writer, sheet_name='Pre Rotativa', index=False)
             
             # Botón de Descarga
             fecha_hoy = datetime.now().strftime("%d%m%Y")
             st.download_button(
-                label="📥 Descargar Reporte Pre Rotativa (Excel)",
+                label="📥 Descargar Reporte Pre Rotativa Ordenado (Excel)",
                 data=output.getvalue(),
                 file_name=f"Reporte_Pre_Rotativa_{fecha_hoy}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
