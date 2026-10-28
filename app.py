@@ -65,6 +65,15 @@ def calcular_hora_llegada(hora_salida, ruta):
     except Exception:
         return None
 
+def resaltar_cauquenes_santiago(row):
+    """Aplica color #ff9900 si la ruta es Cauquenes-Santiago o viceversa."""
+    origen = str(row['Origen (ciudad)']).strip().lower()
+    destino = str(row['Destino (ciudad)']).strip().lower()
+    
+    if (origen == 'santiago' and destino == 'cauquenes') or (origen == 'cauquenes' and destino == 'santiago'):
+        return ['background-color: #ff9900; color: black; font-weight: bold;'] * len(row)
+    return [''] * len(row)
+
 # --- PROCESAMIENTO PRINCIPAL ---
 if archivo_terra:
     try:
@@ -95,20 +104,23 @@ if archivo_terra:
                 'Origen (ciudad)', 'Destino (ciudad)', 'Ocupacion', '% ocupacion'
             ]
             
-            # Filtramos para asegurarnos de que solo muestre las columnas solicitadas
-            # (ignoramos los viajes que no tengan datos completos si fuera necesario, pero aquí mostramos todo)
             df_final = df_terra[columnas_finales]
+            
+            # 5. Aplicar Estilos de Color
+            # Aplicamos la función para resaltar las filas según el origen y destino
+            df_final_estilizado = df_final.style.apply(resaltar_cauquenes_santiago, axis=1)
             
             st.success("✅ ¡Reporte procesado correctamente!")
             
-            # 5. Mostrar Vista Previa
+            # 6. Mostrar Vista Previa
             st.subheader("Vista Previa del Reporte Resultante")
-            st.dataframe(df_final, use_container_width=True)
+            st.dataframe(df_final_estilizado, use_container_width=True)
             
-            # 6. Crear Excel para descarga
+            # 7. Crear Excel para descarga
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                df_final.to_excel(writer, sheet_name='Pre Rotativa', index=False)
+                # Al exportar el dataframe estilizado (df_final_estilizado), pandas guarda los colores en el Excel
+                df_final_estilizado.to_excel(writer, sheet_name='Pre Rotativa', index=False)
             
             # Botón de Descarga
             fecha_hoy = datetime.now().strftime("%d%m%Y")
